@@ -1,0 +1,604 @@
+---
+title: "Predicting House Prices"
+author: "Andrés Llerena"
+date: "26/05/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Predicting House Prices - Modelling process
+
+This R-markdown document shows the detailed steps followed to build and test different models in order to select the one that predicts future House prices in a more accurate fashion based on the information available.
+
+### Install Packages Required
+
+```{r echo=TRUE, results='hide', message=FALSE, warning=FALSE}
+packages_list <- c('RCurl',
+                   'ggplot2',
+                   'dplyr',
+                   'Amelia',
+                   'caret',
+                   'corrplot',
+                   'ranger',
+                   'data.table'
+                   )
+
+for (i in packages_list){
+  if(!i%in%installed.packages()){
+    install.packages(i, dependencies = TRUE)
+    library(i, character.only = TRUE)
+    print(paste0(i, ' has been installed'))
+  } else {
+    print(paste0(i, ' is already installed'))
+    library(i, character.only = TRUE)
+  }
+}
+```
+
+### Configuring Global Variables, Functions and Working Directory
+
+```{r echo=TRUE, results='hide', message=FALSE, warning=FALSE}
+#setwd('/Users/ailleren/Documents/IE\ -\ MBD/3rd\ Term/Advanced\ R/Individual\ Assignment')
+BarFillColor <- "#330066"
+HBarFillColor <- "#000099"
+BarLineColor <- "#FFFAFA"
+MissingColor <- "#FF6666"
+
+mape<-function(real,predicted){
+  return(mean(abs((real-predicted)/real)))
+}  
+
+outlier_treatment <- function(input) {
+  x <- input
+  qnt <- quantile(x, probs=c(.25, .75), na.rm = T)
+  caps <- quantile(x, probs=c(.05, .95), na.rm = T)
+  H <- 1.5 * IQR(x, na.rm = T)
+  x[x < (qnt[1] - H)] <- caps[1]
+  x[x > (qnt[2] + H)] <- caps[2]
+  return(x)
+}
+
+PlotImportance = function(importance)
+{
+  varImportance <- data.frame(Variables = row.names(importance[[1]]), 
+                              Importance = round(importance[[1]]$Overall,2))
+  
+  # Create a rank variable based on importance
+  rankImportance <- varImportance %>%
+    mutate(Rank = paste0('#',dense_rank(desc(Importance))))
+  
+  rankImportancefull = rankImportance
+  
+  ggplot(rankImportance, aes(x = reorder(Variables, Importance), 
+                             y = Importance)) +
+    geom_bar(stat='identity',colour="white", fill = BarFillColor) +
+    geom_text(aes(x = Variables, y = 1, label = Rank),
+              hjust=0, vjust=.5, size = 4, colour = 'black',
+              fontface = 'bold') +
+    labs(x = 'Variables', title = 'Relative Variable Importance') +
+    coord_flip() + 
+    theme_bw()
+}
+```
+
+### Reading Input Datasets
+
+```{r echo=TRUE}
+house_price <- read.csv('input/house_price_train.csv', stringsAsFactor=F)
+#house_price <-read.csv("https://raw.githubusercontent.com/ailleren/Predicting-House-Prices/master/input/house_price_train.csv",stringsAsFactor=F)
+house_test <- read.csv('input/house_price_test.csv', stringsAsFactor=F)
+```
+
+### Initial Dataset Explorarion
+
+We take a look at each variable in the Training dataset, specifically each variable name, type and values to verify if any format/informat issues emerge.  
+```{r echo=TRUE}
+str(house_price)
+```
+
+Also, we take an overall look at each variable's basic descriptives: Min, 1Q, 3Q, Max, Mean, Median values.
+```{r echo=TRUE}
+summary(house_price)
+```
+
+We observe the presence of duplicate IDs
+
+```{r echo=TRUE}
+sum(duplicated(house_price$id))
+```
+
+In order to fix this, it is decided to keep the latest date in which the same house was sold. In order to do that, we need to sort our observations by ID and Date. Since Date is a 'chr' variable, we need to convert it to Date type first. Finally, it is verified that no duplicate values for 'id' remain.
+
+```{r echo=TRUE}
+#Converting 'date' to Date type. A variable 'date2' is temporary created
+house_price$date2 <- as.Date(house_price$date, "%m/%d/%Y")
+#Order observations by decreasing 'id' and 'date2'
+temp<-house_price[order(house_price$id, house_price$date2,decreasing = T),]
+#Id duplicates are removed
+temp <- temp[!duplicated(temp$id),]
+#Duplicate IDs are no longer present
+sum(duplicated(temp$id))
+```
+
+After removing duplicate IDs, we no longer need 'id', 'date' and 'date2'. So, these variables are discarded. This gives us a final Train set with 17,173 unique observations.
+
+```{r echo=TRUE}
+#Discard ID and date as they will not be used in the model
+house_price <- temp #17173 observations
+house_price$id <- NULL
+house_price$date <- NULL
+house_price$date2 <- NULL
+```
+
+### Exploratory Data Analysis
+
+## Variable Treatment: Missings
+
+We plot a Missings map for Numeric variables. The absence of missing values is confirmed.
+
+```{r echo=TRUE}
+numcols <- select_if(house_price, is.numeric)
+missmap(numcols, y.labels = NULL, y.at = NULL, 
+        main = 'Missing values per Numeric variable', rank.order = TRUE,
+        col = c(MissingColor, HBarFillColor)) #No missing values in Numeric variables
+```
+
+We plot a Missings map for Categorical variables. The absence of missing values is confirmed.
+
+```{r echo=TRUE}
+catcols <- c("waterfront","yr_built","yr_renovated","zipcode")
+house_price[,catcols] <- data.frame(apply(house_price[catcols], 2, as.factor))
+missmap(house_price[,catcols], y.labels = NULL, y.at = NULL, 
+        main = 'Missing values per Categorical variable', rank.order = TRUE,
+        col = c(MissingColor, HBarFillColor)) #No missing values in Categorical variables
+```
+
+## Baseline Model
+
+We train a baseline model using all the features as they are, with no further treatment or selection criteria.
+
+```{r echo=TRUE, message=FALSE, results='hide', warning=FALSE}
+set.seed(1234)
+index <- createDataPartition(house_price$waterfront,p=0.8,list=FALSE)
+#Split dataset in Train (80%) and Test (20%)
+house_train <- house_price[index,]
+house_test <- house_price[-index,]
+
+#kfolds
+kfolds <- trainControl(method = "cv", number = 5, savePredictions=TRUE)
+
+#Train baseline model
+baseline_model <- train(price~.,data=house_train, method="lm", trControl = kfolds)
+```
+
+```{r echo=TRUE, message=FALSE}
+print(baseline_model)
+```
+
+```{r echo=TRUE}
+#Baseline Model predictions
+val_baseline <- predict(baseline_model,house_test)
+paste("MAPE: ", mape(real=house_test$price, predicted = val_baseline)*100,"%",sep = '')
+qplot(house_test$price, val_baseline)
+```
+
+This Baseline model produces an R-square of 80% and a Mean Absolute Percentage Error (from now on MAPE) of 20.2%. 
+
+In order to improve our predictions it is necessary to treat each one of the variables, create new features (if necessary), check if correlation between variables exists, etc. This process is described in the following steps.
+
+# Feature Engineering
+
+## Variable Treatment: Outliers
+
+### Numeric Variables
+
+Boxplots for each Numeric variable are presented.
+
+```{r echo=TRUE}
+par(mfrow=c(2,5))
+for(i in 1:ncol(numcols)) {
+  boxplot(numcols[,i], main=names(numcols)[i])
+}
+```
+
+Variables such as 'bedrooms', 'bathrooms', 'sqft_living', 'sqft_lot', 'sqft_above', 'sqft_basement', 'sqft_living15' and 'sqft_lot15' contain outliers. These variables will be treated capping outliers equal or bigger than the 95th percentile value and equal or smaller than the 5th percentile value. Variables which depict location such as 'lat', 'long' will be kept untreated.
+
+A function was previosuly defined to cap outliers (Refer to section X.X) and it is executed for every Numeric variable mentioned above.
+
+```{r echo=TRUE}
+house_price$bedrooms_t <- outlier_treatment(house_price$bedrooms)
+house_price$bathrooms_t <- outlier_treatment(house_price$bathrooms)
+house_price$sqft_living_t <- outlier_treatment(house_price$sqft_living)
+house_price$sqft_lot_t <- outlier_treatment(house_price$sqft_lot)
+house_price$sqft_above_t <- outlier_treatment(house_price$sqft_above)
+house_price$sqft_living15_t <- outlier_treatment(house_price$sqft_living15)
+house_price$sqft_lot15_t <- outlier_treatment(house_price$sqft_lot15)
+house_price$grade_t <- outlier_treatment(house_price$grade)
+```
+
+Variables 'sqft_basement' and 'view' will be transformed to Categorical variables (flag variables with values 0 or 1) due to the large proportion of values equal to 0.
+
+```{r echo=TRUE}
+house_price$basement <- ifelse(house_price$sqft_basement == 0, 0, 1)
+house_price$fview <- ifelse(house_price$view == 0, 0, 1)
+```
+
+### Categorical variables
+
+Barplots for each Categorical variable are presented.
+
+```{r echo=TRUE}
+par(mfrow=c(2,2))
+for(i in 1:length(catcols)) {
+  counts <- table(house_price[,catcols][,i])
+  name <- names(house_price[,catcols])[i]
+  barplot(counts, main=name)
+}
+```
+
+Variable 'yr_renovated' will be transformed to a flag variable with values 0 or 1 due to the large proportion of values equal to 0.
+Variable 'yr_built' is transformed to 'houseAge' (Numeric variable) representing number of years since the house was built. 
+
+```{r echo=TRUE}
+house_price$renovated <- ifelse(house_price$yr_renovated == 0, 0, 1)
+house_price$houseAge <- as.integer(format(Sys.Date(), "%Y")) - as.integer(as.character(house_price$yr_built))
+```
+
+## Variable Selection
+
+After variable treatment and creation of new features, we keep the transformed variables and plot them again to check their new distribution.
+
+```{r echo=TRUE}
+catcols <- c(catcols,"fview","renovated", "basement")
+house_price[,catcols] <- data.frame(apply(house_price[catcols], 2, as.factor))
+```
+
+```{r echo=TRUE}
+rm_col <- c("bedrooms","bathrooms","sqft_living","sqft_lot","sqft_above",
+            "sqft_basement","sqft_living15",
+            "sqft_lot15","grade","view")
+house_price1 <- house_price[, !(colnames(house_price) %in% rm_col), drop = FALSE]
+numcols <- select_if(house_price1, is.numeric)
+```
+
+```{r echo=TRUE}
+par(mfrow=c(2,4))
+for(i in 1:ncol(numcols)) {
+  boxplot(numcols[,i], main=names(numcols)[i])
+}
+```
+
+```{r echo=TRUE}
+par(mfrow=c(2,4))
+for(i in 1:length(catcols)) {
+  counts <- table(house_price1[,catcols][,i])
+  name <- names(house_price1[,catcols])[i]
+  barplot(counts, main=name)
+}
+```
+
+
+### Correlation Analysis
+
+A correlation analysis is presented to identify which variables are highly correlated in order to not include them in our models at the same time.
+
+```{r echo=TRUE}
+#Select all variables minus Target variable
+house_price2 <- subset(house_price1, select = -c(price))
+#Plot Correlation Matrix
+CorrelationResults <- cor(select_if(house_price2, is.numeric))
+corrplot(CorrelationResults,method="color", type='upper',addCoef.col = "black",
+        number.cex = 0.5, tl.col = "black", tl.cex = 0.7, cl.cex = 0.7)
+```
+
+In the matrix shown, variables like 'sqft_living_t' and 'sqft_above_t'. Another example of this case is 'sqft_lot_t' and 'sqft_lot15_t'. From these pairs, only one variable should be tested in the models each time.
+
+```{r echo=TRUE}
+#importance = varImp(baseline_model,scale=T)
+#PlotImportance(importance)
+```
+
+### Variable Scaling
+
+Due to the different scales in our Numeric variables ('sqft' variables representing thousands and 'bedrooms' and/or 'bathrooms' representing units) it is necessary to scale all Numeric variables so each get the same 'weight' when models are built.
+
+```{r echo=TRUE}
+house_price1$sqft_living_tf <- scale(house_price1$sqft_living_t)
+house_price1$sqft_lot_tf <- scale(house_price1$sqft_lot_t)
+house_price1$houseAge_f <- scale(house_price1$houseAge)
+house_price1$bathrooms_tf <- scale(house_price1$bathrooms_t)
+house_price1$bedrooms_tf <- scale(house_price1$bedrooms_t)
+house_price1$floors_f <- scale(house_price1$floors)
+house_price1$condition_f <- scale(house_price1$condition)
+house_price1$grade_f <- scale(house_price1$grade)
+```
+
+### Variable Selection
+
+Finally we select the most updated version of each variable (i.e. treated for outliers and/or scaled), taking into account not to select two highly correlated variables. Variable 'zipcode' is discarded as it presents a large number of levels and contributes approximately 'similar' informatio as 'lat' and 'long'.
+
+```{r echo=TRUE}
+keep_col <- c("price","grade_f","sqft_living_tf","sqft_lot_tf","renovated",
+              "basement","houseAge_f","bathrooms_tf","bedrooms_tf","floors_f",
+              "waterfront","fview","lat", "long","condition_f")
+house_price3 <- house_price1[, (colnames(house_price1) %in% keep_col)]
+
+house_train3 <- house_price3[index,]
+house_test3 <- house_price3[-index,]
+```
+
+# Modeling
+
+## Linear Regression
+
+```{r echo=TRUE}
+model_lm <- train(price~.,data=house_train3, method="lm", trControl = kfolds)
+print(model_lm)
+```
+
+```{r echo=TRUE}
+# Prediction
+val_lm <- predict(model_lm,house_test3)
+paste("MAPE: ", mape(real=house_test3$price, predicted = val_lm)*100,"%",sep = '')
+qplot(house_test3$price, val_lm)
+```
+
+## Random Forest
+
+```{r echo=TRUE}
+# Define grid of hyperparameters to tune
+tuneGrid=data.table(expand.grid(mtry=c(5,14),
+                                splitrule='variance',
+                                min.node.size=c(2,5,10)))
+
+model_rf <- train(price~.,data=house_train3, method="ranger", 
+                num.trees=500,
+                preProc = NULL, 
+                tuneGrid = tuneGrid,
+                trControl = kfolds,
+                metric = "MAE")
+print(model_rf)
+```
+
+```{r echo=TRUE}
+# Prediction
+val_rf <- predict(model_rf,house_test3)
+paste("MAPE: ", mape(real=house_test3$price, predicted = val_rf)*100,"%",sep = '')
+qplot(house_test3$price, val_rf)
+```
+
+## Gradient Boosting  
+
+```{r echo=TRUE, message=FALSE, results='hide', warning=FALSE, results=FALSE, error=FALSE}
+model_gbm <- train(price~.,data=house_train3, method="gbm", 
+                trControl = kfolds,
+                verbose = F)
+```
+
+```{r echo=TRUE}
+print(model_gbm)
+```
+
+```{r echo=TRUE}
+#### Prediction
+val_gbm <- predict(model_gbm,house_test3)
+paste("MAPE: ", mape(real=house_test3$price, predicted = val_gbm)*100,"%",sep = '')
+qplot(house_test3$price, val_gbm)
+```
+
+## Extreme Gradient Boosting (XGB)
+
+```{r echo=TRUE, message=FALSE, results='hide', warning=FALSE}
+xgbGrid <- expand.grid(nrounds = 500,
+                       max_depth = 4,
+                      eta = .05,
+                       gamma = 0,
+                       colsample_bytree = .5,
+                       min_child_weight = 1,
+                       subsample = 1)
+
+model_xgb<- train(price~.,data=house_train3, method="xgbTree", trControl=kfolds,
+                  tuneGrid = xgbGrid, na.action = na.pass,
+                  metric = "MAE")
+```
+
+```{r echo=TRUE}
+print(model_xgb)
+```
+
+```{r echo=TRUE}
+# Prediction
+val_xgb <- predict(model_xgb,house_test3)
+paste("MAPE: ", mape(real=house_test3$price, predicted = val_xgb)*100,"%",sep = '')
+qplot(house_test3$price, val_xgb)
+```
+
+## XGB + Principal Components Analysis (Latitude and Longitude)
+
+A PC analysis is performed on variables 'lat' and 'long' and the new Pricipal Components are tested in the XGB model.
+
+### PC Analysis
+
+```{r echo=TRUE}
+# Principal Components Analysis
+PCAData = house_price3 %>%
+  select(lat,long)
+pca = prcomp(PCAData, scale. = T)
+pca_temp <- predict(pca, newdata = PCAData)
+pca_temp = as.data.frame(pca_temp)
+
+house_price3_pca = cbind(house_price3,pca_temp)
+house_price3_pca$lat = NULL 
+house_price3_pca$long = NULL 
+```
+
+```{r echo=TRUE}
+house_train3_pca <- house_price3_pca[index,]
+house_test3_pca <- house_price3_pca[-index,]
+```
+
+### XGB + PCA
+
+```{r echo=TRUE}
+model_xgb_pca = train(price~.,data=house_train3_pca,
+                   method = "xgbTree",trControl = kfolds,
+                   tuneGrid = xgbGrid,na.action = na.pass,metric="MAE")
+```
+
+```{r echo=TRUE}
+importance = varImp(model_xgb_pca)
+PlotImportance(importance)
+
+print(model_xgb_pca)
+```
+
+```{r echo=TRUE}
+#### Prediction
+val_xgb_pca <- predict(model_xgb_pca,house_test3_pca)
+paste("MAPE: ", mape(real=house_test3_pca$price, predicted = val_xgb_pca)*100,"%",sep = '')
+qplot(house_test3_pca$price, val_xgb_pca)
+```
+
+# Modeling with Log(Price) as Target
+
+Distribution of House Price (Target variable) is right skewed, so a log() function us applied and all models are re-trained.
+
+## Log(Price)
+
+```{r echo=TRUE}
+temp_price <-house_price3 %>% 
+             select(price)
+ggplot(temp_price,aes(x=price)) + geom_histogram(fill="#000099")
+```
+
+After transforming price into log(price)
+
+```{r echo=TRUE}
+
+house_price3_logp <- house_price3
+house_price3_logp$logprice <- log(house_price3_logp$price)
+house_price3_logp$price <- NULL
+
+house_train3_logp <- house_price3_logp[index,]
+house_test3_logp <- house_price3_logp[-index,]
+```
+
+```{r echo=TRUE}
+temp_price <-house_price3_logp %>% 
+             select(logprice)
+ggplot(temp_price,aes(x=logprice)) + geom_histogram(fill="#000099")
+```
+
+## Random Forest (Log(Price))
+
+```{r echo=TRUE}
+#RF - Log Price
+model_rf_logp <- train(logprice~.,data=house_train3_logp, method="ranger", 
+                num.trees=500,
+                preProc = NULL, 
+                tuneGrid = tuneGrid,
+                trControl = kfolds,
+                metric = "MAE")
+print(model_rf_logp)
+```
+
+```{r echo=TRUE}
+#### Prediction
+val_rf_logp <- predict(model_rf_logp,house_test3_logp)
+paste("MAPE: ", mape(real=exp(house_test3_logp$logprice), 
+                     predicted = exp(val_rf_logp))*100,"%",sep = '')
+qplot(exp(house_test3_logp$logprice), exp(val_rf_logp))
+```
+## Gradient Boosting (Log(Price))
+
+```{r echo=TRUE, message=FALSE, results='hide', warning=FALSE, results=FALSE, error=FALSE}
+# GBM - Log Price
+model_gbm_logp <- train(logprice~.,data=house_train3_logp, method="gbm", 
+                trControl = kfolds)
+
+print(model_gbm_logp)
+```
+
+```{r echo=TRUE}
+# Prediction
+val_gbm_logp <- predict(model_gbm_logp,house_test3_logp)
+paste("MAPE: ", mape(real=exp(house_test3_logp$logprice), 
+                     predicted = exp(val_gbm_logp))*100,"%",sep = '')
+qplot(exp(house_test3_logp$logprice), exp(val_gbm_logp))
+```
+
+## XGB (Log(Price))
+
+```{r echo=TRUE, message=FALSE, results='hide', warning=FALSE}
+# XGB - Log Price
+model_xgb_logp <- train(logprice~.,data=house_train3_logp, method="xgbTree", trControl=kfolds,
+                  tuneGrid = xgbGrid, na.action = na.pass,
+                  metric = "MAE")
+```
+
+```{r echo=TRUE}
+print(model_xgb_logp)
+```
+
+```{r echo=TRUE}
+# Prediction
+val_xgb_logp <- predict(model_xgb_logp,house_test3_logp)
+paste("MAPE: ", mape(real=exp(house_test3_logp$logprice), 
+                     predicted = exp(val_xgb_logp))*100,"%",sep = '')
+qplot(exp(house_test3_logp$logprice), exp(val_xgb_logp))
+```
+
+## XGB + PCA (Log(Price))
+
+```{r echo=TRUE}
+## PCA
+PCAData = house_price3_logp %>%
+  select(lat,long)
+pca = prcomp(PCAData, scale. = T)
+pca_temp <- predict(pca, newdata = PCAData)
+pca_temp = as.data.frame(pca_temp)
+house_price3_logp_pca = cbind(house_price3_logp,pca_temp)
+house_price3_logp_pca$lat = NULL 
+house_price3_logp_pca$long = NULL 
+```
+
+```{r echo=TRUE}
+house_train3_logp_pca <- house_price3_logp_pca[index,]
+house_test3_logp_pca <- house_price3_logp_pca[-index,]
+```
+
+```{r echo=TRUE}
+model_xgb_logp_pca = train(logprice~.,data=house_train3_logp_pca,
+                   method = "xgbTree",trControl = kfolds,
+                   tuneGrid = xgbGrid,na.action = na.pass,metric="MAE")
+```
+
+```{r echo=TRUE}
+print(model_xgb_logp_pca)
+```
+
+```{r echo=TRUE}
+# Prediction
+val_xgb_logp_pca <- predict(model_xgb_logp_pca,house_test3_logp_pca)
+paste("MAPE: ", mape(real=exp(house_test3_logp_pca$logprice), 
+                     predicted = exp(val_xgb_logp_pca))*100,"%",sep = '')
+qplot(exp(house_test3_logp_pca$logprice), exp(val_xgb_logp_pca))
+```
+
+# Model Selection
+
+After training different models on the Train dataset, the model with the lowest MAPE is selected. In this case this models refers to Extreme Gradient Boosting (XGB) on a standardized Target (Log(Price)) with a R-square rate of 89.48% and MAPE of 12.48%.
+
+# Next Steps
+
+## Test Set preparation
+
+The Test set that we left out of the Training phase needs to be prepared to receive our model. That means, we need to treat its values on the same fashion we did on the Training dataset.
+
+```{r echo=TRUE}
+# Prediction
+
+```
