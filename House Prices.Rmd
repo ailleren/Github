@@ -16,8 +16,7 @@ This R-markdown document shows the detailed steps followed to build and test dif
 ### Install Packages Required
 
 ```{r echo=TRUE, results='hide', message=FALSE, warning=FALSE}
-packages_list <- c('RCurl',
-                   'ggplot2',
+packages_list <- c('ggplot2',
                    'dplyr',
                    'Amelia',
                    'caret',
@@ -38,10 +37,9 @@ for (i in packages_list){
 }
 ```
 
-### Configuring Global Variables, Functions and Working Directory
+### Configuring Global Variables and Functions 
 
 ```{r echo=TRUE, results='hide', message=FALSE, warning=FALSE}
-#setwd('/Users/ailleren/Documents/IE\ -\ MBD/3rd\ Term/Advanced\ R/Individual\ Assignment')
 BarFillColor <- "#330066"
 HBarFillColor <- "#000099"
 BarLineColor <- "#FFFAFA"
@@ -84,15 +82,14 @@ PlotImportance = function(importance)
 }
 ```
 
-### Reading Input Datasets
+### Reading Input Dataset
 
 ```{r echo=TRUE}
 house_price <- read.csv('input/house_price_train.csv', stringsAsFactor=F)
-#house_price <-read.csv("https://raw.githubusercontent.com/ailleren/Predicting-House-Prices/master/input/house_price_train.csv",stringsAsFactor=F)
-house_test <- read.csv('input/house_price_test.csv', stringsAsFactor=F)
+#house_test <- read.csv('input/house_price_test.csv', stringsAsFactor=F)
 ```
 
-### Initial Dataset Explorarion
+### Initial Dataset Exploration
 
 We take a look at each variable in the Training dataset, specifically each variable name, type and values to verify if any format/informat issues emerge.  
 ```{r echo=TRUE}
@@ -160,7 +157,7 @@ missmap(house_price[,catcols], y.labels = NULL, y.at = NULL,
 
 We train a baseline model using all the features as they are, with no further treatment or selection criteria.
 
-```{r echo=TRUE, message=FALSE, results='hide', warning=FALSE}
+```{r echo=TRUE, message=FALSE, warning=FALSE}
 set.seed(1234)
 index <- createDataPartition(house_price$waterfront,p=0.8,list=FALSE)
 #Split dataset in Train (80%) and Test (20%)
@@ -172,13 +169,14 @@ kfolds <- trainControl(method = "cv", number = 5, savePredictions=TRUE)
 
 #Train baseline model
 baseline_model <- train(price~.,data=house_train, method="lm", trControl = kfolds)
-```
 
-```{r echo=TRUE, message=FALSE}
+#Print Model Results
 print(baseline_model)
 ```
 
-```{r echo=TRUE}
+Baseline Model Predictions vs Validation Set:
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
 #Baseline Model predictions
 val_baseline <- predict(baseline_model,house_test)
 paste("MAPE: ", mape(real=house_test$price, predicted = val_baseline)*100,"%",sep = '')
@@ -206,7 +204,7 @@ for(i in 1:ncol(numcols)) {
 
 Variables such as 'bedrooms', 'bathrooms', 'sqft_living', 'sqft_lot', 'sqft_above', 'sqft_basement', 'sqft_living15' and 'sqft_lot15' contain outliers. These variables will be treated capping outliers equal or bigger than the 95th percentile value and equal or smaller than the 5th percentile value. Variables which depict location such as 'lat', 'long' will be kept untreated.
 
-A function was previosuly defined to cap outliers (Refer to section X.X) and it is executed for every Numeric variable mentioned above.
+A function was previosuly defined to cap outliers (Refer to section 'Configuring Global Variables and Functions') and it is executed for every Numeric variable mentioned above.
 
 ```{r echo=TRUE}
 house_price$bedrooms_t <- outlier_treatment(house_price$bedrooms)
@@ -280,7 +278,6 @@ for(i in 1:length(catcols)) {
 }
 ```
 
-
 ### Correlation Analysis
 
 A correlation analysis is presented to identify which variables are highly correlated in order to not include them in our models at the same time.
@@ -296,11 +293,6 @@ corrplot(CorrelationResults,method="color", type='upper',addCoef.col = "black",
 
 In the matrix shown, variables like 'sqft_living_t' and 'sqft_above_t'. Another example of this case is 'sqft_lot_t' and 'sqft_lot15_t'. From these pairs, only one variable should be tested in the models each time.
 
-```{r echo=TRUE}
-#importance = varImp(baseline_model,scale=T)
-#PlotImportance(importance)
-```
-
 ### Variable Scaling
 
 Due to the different scales in our Numeric variables ('sqft' variables representing thousands and 'bedrooms' and/or 'bathrooms' representing units) it is necessary to scale all Numeric variables so each get the same 'weight' when models are built.
@@ -313,12 +305,12 @@ house_price1$bathrooms_tf <- scale(house_price1$bathrooms_t)
 house_price1$bedrooms_tf <- scale(house_price1$bedrooms_t)
 house_price1$floors_f <- scale(house_price1$floors)
 house_price1$condition_f <- scale(house_price1$condition)
-house_price1$grade_f <- scale(house_price1$grade)
+house_price1$grade_f <- scale(house_price1$grade_t)
 ```
 
 ### Variable Selection
 
-Finally we select the most updated version of each variable (i.e. treated for outliers and/or scaled), taking into account not to select two highly correlated variables. Variable 'zipcode' is discarded as it presents a large number of levels and contributes approximately 'similar' informatio as 'lat' and 'long'.
+Finally we select the most updated version of each variable (i.e. treated for outliers and/or scaled), taking into account not to select two highly correlated variables. Variable 'zipcode' is discarded as it presents a large number of levels and contributes approximately 'similar' information as 'lat' and 'long'.
 
 ```{r echo=TRUE}
 keep_col <- c("price","grade_f","sqft_living_tf","sqft_lot_tf","renovated",
@@ -330,7 +322,7 @@ house_train3 <- house_price3[index,]
 house_test3 <- house_price3[-index,]
 ```
 
-# Modeling
+# Modelling
 
 ## Linear Regression
 
@@ -338,6 +330,8 @@ house_test3 <- house_price3[-index,]
 model_lm <- train(price~.,data=house_train3, method="lm", trControl = kfolds)
 print(model_lm)
 ```
+
+Linear Regression Predictions vs Validation Set:
 
 ```{r echo=TRUE}
 # Prediction
@@ -363,6 +357,8 @@ model_rf <- train(price~.,data=house_train3, method="ranger",
 print(model_rf)
 ```
 
+Random Forest Predictions vs Validation Set:
+
 ```{r echo=TRUE}
 # Prediction
 val_rf <- predict(model_rf,house_test3)
@@ -376,14 +372,14 @@ qplot(house_test3$price, val_rf)
 model_gbm <- train(price~.,data=house_train3, method="gbm", 
                 trControl = kfolds,
                 verbose = F)
-```
 
-```{r echo=TRUE}
 print(model_gbm)
 ```
 
+GBM Predictions vs Validation Set:
+
 ```{r echo=TRUE}
-#### Prediction
+# Prediction
 val_gbm <- predict(model_gbm,house_test3)
 paste("MAPE: ", mape(real=house_test3$price, predicted = val_gbm)*100,"%",sep = '')
 qplot(house_test3$price, val_gbm)
@@ -403,11 +399,10 @@ xgbGrid <- expand.grid(nrounds = 500,
 model_xgb<- train(price~.,data=house_train3, method="xgbTree", trControl=kfolds,
                   tuneGrid = xgbGrid, na.action = na.pass,
                   metric = "MAE")
-```
-
-```{r echo=TRUE}
 print(model_xgb)
 ```
+
+XGB Predictions vs Validation Set:
 
 ```{r echo=TRUE}
 # Prediction
@@ -446,14 +441,10 @@ house_test3_pca <- house_price3_pca[-index,]
 model_xgb_pca = train(price~.,data=house_train3_pca,
                    method = "xgbTree",trControl = kfolds,
                    tuneGrid = xgbGrid,na.action = na.pass,metric="MAE")
-```
-
-```{r echo=TRUE}
-importance = varImp(model_xgb_pca)
-PlotImportance(importance)
 
 print(model_xgb_pca)
 ```
+
 
 ```{r echo=TRUE}
 #### Prediction
@@ -464,14 +455,14 @@ qplot(house_test3_pca$price, val_xgb_pca)
 
 # Modeling with Log(Price) as Target
 
-Distribution of House Price (Target variable) is right skewed, so a log() function us applied and all models are re-trained.
+Distribution of House Price (Target variable) is right skewed, so a log() function is applied and all models are re-trained.
 
 ## Log(Price)
 
 ```{r echo=TRUE}
 temp_price <-house_price3 %>% 
              select(price)
-ggplot(temp_price,aes(x=price)) + geom_histogram(fill="#000099")
+ggplot(temp_price,aes(x=price)) + geom_histogram(fill=HBarFillColor)
 ```
 
 After transforming price into log(price)
@@ -489,7 +480,7 @@ house_test3_logp <- house_price3_logp[-index,]
 ```{r echo=TRUE}
 temp_price <-house_price3_logp %>% 
              select(logprice)
-ggplot(temp_price,aes(x=logprice)) + geom_histogram(fill="#000099")
+ggplot(temp_price,aes(x=logprice)) + geom_histogram(fill=HBarFillColor)
 ```
 
 ## Random Forest (Log(Price))
@@ -505,22 +496,27 @@ model_rf_logp <- train(logprice~.,data=house_train3_logp, method="ranger",
 print(model_rf_logp)
 ```
 
+RF - Log(Price) Predictions vs Validation Set:
+
 ```{r echo=TRUE}
-#### Prediction
+# Prediction
 val_rf_logp <- predict(model_rf_logp,house_test3_logp)
 paste("MAPE: ", mape(real=exp(house_test3_logp$logprice), 
                      predicted = exp(val_rf_logp))*100,"%",sep = '')
 qplot(exp(house_test3_logp$logprice), exp(val_rf_logp))
 ```
+
 ## Gradient Boosting (Log(Price))
 
 ```{r echo=TRUE, message=FALSE, results='hide', warning=FALSE, results=FALSE, error=FALSE}
 # GBM - Log Price
 model_gbm_logp <- train(logprice~.,data=house_train3_logp, method="gbm", 
-                trControl = kfolds)
+                trControl = kfolds, verbose = F)
 
 print(model_gbm_logp)
 ```
+
+GBM - Log(Price) Predictions vs Validation Set:
 
 ```{r echo=TRUE}
 # Prediction
@@ -537,11 +533,11 @@ qplot(exp(house_test3_logp$logprice), exp(val_gbm_logp))
 model_xgb_logp <- train(logprice~.,data=house_train3_logp, method="xgbTree", trControl=kfolds,
                   tuneGrid = xgbGrid, na.action = na.pass,
                   metric = "MAE")
-```
 
-```{r echo=TRUE}
 print(model_xgb_logp)
 ```
+
+XGB - Log(Price) Predictions vs Validation Set:
 
 ```{r echo=TRUE}
 # Prediction
@@ -574,11 +570,11 @@ house_test3_logp_pca <- house_price3_logp_pca[-index,]
 model_xgb_logp_pca = train(logprice~.,data=house_train3_logp_pca,
                    method = "xgbTree",trControl = kfolds,
                    tuneGrid = xgbGrid,na.action = na.pass,metric="MAE")
-```
 
-```{r echo=TRUE}
 print(model_xgb_logp_pca)
 ```
+
+XGB + PCA - Log(Price) Predictions vs Validation Set:
 
 ```{r echo=TRUE}
 # Prediction
@@ -596,9 +592,8 @@ After training different models on the Train dataset, the model with the lowest 
 
 ## Test Set preparation
 
-The Test set that we left out of the Training phase needs to be prepared to receive our model. That means, we need to treat its values on the same fashion we did on the Training dataset.
+The Test set that we left out of the Training phase needs to be prepared to receive our model. That means, we need to treat its variables on the same fashion we did on the Training dataset. This process is documented in the Predicting_TestSet.R file attached.
 
-```{r echo=TRUE}
-# Prediction
+## Test Set predictions
 
-```
+Once the Test set has its variables prepared, the chosen model (in this case XGB on a standardized Target variable) is conducted on it to predict house prices. Those predictions are saved in the file 'House_price_predictions.csv'.
