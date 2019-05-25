@@ -165,7 +165,7 @@ house_train <- house_price[index,]
 house_test <- house_price[-index,]
 
 #kfolds
-kfolds <- trainControl(method = "cv", number = 5, savePredictions=TRUE)
+kfolds <- trainControl(method = "cv", number = 10, savePredictions=TRUE)
 
 #Train baseline model
 baseline_model <- train(price~.,data=house_train, method="lm", trControl = kfolds)
@@ -305,7 +305,7 @@ house_price1$bathrooms_tf <- scale(house_price1$bathrooms_t)
 house_price1$bedrooms_tf <- scale(house_price1$bedrooms_t)
 house_price1$floors_f <- scale(house_price1$floors)
 house_price1$condition_f <- scale(house_price1$condition)
-house_price1$grade_f <- scale(house_price1$grade_t)
+house_price1$grade_tf <- scale(house_price1$grade_t)
 ```
 
 ### Variable Selection
@@ -313,7 +313,7 @@ house_price1$grade_f <- scale(house_price1$grade_t)
 Finally we select the most updated version of each variable (i.e. treated for outliers and/or scaled), taking into account not to select two highly correlated variables. Variable 'zipcode' is discarded as it presents a large number of levels and contributes approximately 'similar' information as 'lat' and 'long'.
 
 ```{r echo=TRUE}
-keep_col <- c("price","grade_f","sqft_living_tf","sqft_lot_tf","renovated",
+keep_col <- c("price","grade_tf","sqft_living_tf","sqft_lot_tf","renovated",
               "basement","houseAge_f","bathrooms_tf","bedrooms_tf","floors_f",
               "waterfront","fview","lat", "long","condition_f")
 house_price3 <- house_price1[, (colnames(house_price1) %in% keep_col)]

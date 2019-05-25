@@ -25,7 +25,6 @@ predict_set$sqft_lot_t <- outlier_treat(house_price$sqft_lot, predict_set$sqft_l
 predict_set$grade_t <- outlier_treat(house_price$grade, predict_set$grade)
 
 # New variables creation
-
 predict_set$basement <- ifelse(predict_set$sqft_basement == 0, 0, 1)
 predict_set$fview <- ifelse(predict_set$view == 0, 0, 1)
 predict_set$renovated <- ifelse(predict_set$yr_renovated == 0, 0, 1)
@@ -35,9 +34,7 @@ predict_set$houseAge <- as.integer(format(Sys.Date(), "%Y")) - as.integer(as.cha
 fact <- c("fview","renovated", "basement", "waterfront")
 predict_set[,fact] <- data.frame(apply(predict_set[fact], 2, as.factor))
 
-
 # Numeric variable scalling
-
 predict_set$grade_tf <-scale(predict_set$grade_t, center = mean(house_price1$grade_t),
       scale = sd(house_price1$grade_t))
 
@@ -62,24 +59,21 @@ predict_set$floors_f <-scale(predict_set$floors, center = mean(house_price1$floo
 predict_set$condition_f <-scale(predict_set$condition, center = mean(house_price1$condition),
                              scale = sd(house_price1$condition))
 
-keep <- c("id","grade_f","sqft_living_tf","sqft_lot_tf","renovated",
+keep <- c("id","grade_tf","sqft_living_tf","sqft_lot_tf","renovated",
               "basement","houseAge_f","bathrooms_tf","bedrooms_tf","floors_f",
               "waterfront","fview","lat", "long","condition_f")
 predict_set2 <- predict_set[, (colnames(predict_set) %in% keep)]
 
 # Predicting House prices on the new dataset
-
 temp_pred <- predict_set2$id
 predict_set2$id <- NULL
-predict_set_f$logpred <- predict(model_xgb_logp, newdata = predict_set2)
+predict_set2$logpred <- predict(model_xgb_logp, newdata = predict_set2)
 
-# transform predictions
-predict_set_f$id <- temp_pred
-predict_set_f$pred_price <- exp(logpred)
+# Transform predictions
+x <- data.frame(id = temp_pred)
+x$pred_price <- exp(predict_set2$logpred)
 
-# prepare final prediction csv for submission
-pred_submission <- predict_set_f[,.(id, pred_price)]
-#pred_submission$id <- valraw1$id
+summary(x)
 
-# write file to csv
-fwrite(pred_submission, "output/Test_Prediction.csv")
+# Export CSV
+fwrite(x, "output/Test_Prediction.csv")
