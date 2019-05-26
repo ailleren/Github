@@ -13,10 +13,6 @@ outlier_treat <- function(train,test) {
   return(x)
 }
 
-#"price","grade_f","sqft_living_tf","sqft_lot_tf","renovated",
-#"basement","houseAge_f","bathrooms_tf","bedrooms_tf","floors_f",
-#"waterfront","fview","lat", "long","condition_f")
-
 # Outlier treatment
 predict_set$bedrooms_t <- outlier_treat(house_price$bedrooms, predict_set$bedrooms)
 predict_set$bathrooms_t <- outlier_treat(house_price$bathrooms, predict_set$bathrooms)
@@ -36,29 +32,23 @@ predict_set[,fact] <- data.frame(apply(predict_set[fact], 2, as.factor))
 
 # Numeric variable scalling
 predict_set$grade_tf <-scale(predict_set$grade_t, center = mean(house_price1$grade_t),
-      scale = sd(house_price1$grade_t))
-
+                                    scale = sd(house_price1$grade_t))
 predict_set$sqft_living_tf <-scale(predict_set$sqft_living_t, center = mean(house_price1$sqft_living_t),
-                           scale = sd(house_price1$sqft_living_t))
-
+                                   scale = sd(house_price1$sqft_living_t))
 predict_set$sqft_lot_tf <-scale(predict_set$sqft_lot_t, center = mean(house_price1$sqft_lot_t),
                                    scale = sd(house_price1$sqft_lot_t))
-
 predict_set$houseAge_f <-scale(predict_set$houseAge, center = mean(house_price1$houseAge),
                                 scale = sd(house_price1$houseAge))
-
 predict_set$bedrooms_tf <-scale(predict_set$bedrooms_t, center = mean(house_price1$bedrooms_t),
                                scale = sd(house_price1$bedrooms_t))
-
 predict_set$bathrooms_tf <-scale(predict_set$bathrooms_t, center = mean(house_price1$bathrooms_t),
                                scale = sd(house_price1$bathrooms_t))
-
 predict_set$floors_f <-scale(predict_set$floors, center = mean(house_price1$floors),
                                scale = sd(house_price1$floors))
-
 predict_set$condition_f <-scale(predict_set$condition, center = mean(house_price1$condition),
                              scale = sd(house_price1$condition))
 
+# Keeping the required variables to run the model
 keep <- c("id","grade_tf","sqft_living_tf","sqft_lot_tf","renovated",
               "basement","houseAge_f","bathrooms_tf","bedrooms_tf","floors_f",
               "waterfront","fview","lat", "long","condition_f")
@@ -69,11 +59,9 @@ temp_pred <- predict_set2$id
 predict_set2$id <- NULL
 predict_set2$logpred <- predict(model_xgb_logp, newdata = predict_set2)
 
-# Transform predictions
+# Transform predictions from Log(Price) to Price
 x <- data.frame(id = temp_pred)
 x$pred_price <- exp(predict_set2$logpred)
 
-summary(x)
-
 # Export CSV
-fwrite(x, "output/Test_Prediction.csv")
+fwrite(x, "output/House_price_predictions.csv")

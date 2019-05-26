@@ -13,6 +13,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 This R-markdown document shows the detailed steps followed to build and test different models in order to select the one that predicts future House prices in a more accurate fashion based on the information available.
 
+This R-Markdown file, raw data sets and Executive summary report can be found at the following Github repository: https://github.com/ailleren/Predicting_House_Prices
+
 ### Install Packages Required
 
 ```{r echo=TRUE, results='hide', message=FALSE, warning=FALSE}
@@ -245,8 +247,6 @@ house_price$renovated <- ifelse(house_price$yr_renovated == 0, 0, 1)
 house_price$houseAge <- as.integer(format(Sys.Date(), "%Y")) - as.integer(as.character(house_price$yr_built))
 ```
 
-## Variable Selection
-
 After variable treatment and creation of new features, we keep the transformed variables and plot them again to check their new distribution.
 
 ```{r echo=TRUE}
@@ -308,7 +308,7 @@ house_price1$condition_f <- scale(house_price1$condition)
 house_price1$grade_tf <- scale(house_price1$grade_t)
 ```
 
-### Variable Selection
+## Variable Selection
 
 Finally we select the most updated version of each variable (i.e. treated for outliers and/or scaled), taking into account not to select two highly correlated variables. Variable 'zipcode' is discarded as it presents a large number of levels and contributes approximately 'similar' information as 'lat' and 'long'.
 
@@ -331,7 +331,7 @@ model_lm <- train(price~.,data=house_train3, method="lm", trControl = kfolds)
 print(model_lm)
 ```
 
-Linear Regression Predictions vs Validation Set:
+**Linear Regression Predictions vs Validation Set:**
 
 ```{r echo=TRUE}
 # Prediction
@@ -357,7 +357,7 @@ model_rf <- train(price~.,data=house_train3, method="ranger",
 print(model_rf)
 ```
 
-Random Forest Predictions vs Validation Set:
+**Random Forest Predictions vs Validation Set:**
 
 ```{r echo=TRUE}
 # Prediction
@@ -376,7 +376,7 @@ model_gbm <- train(price~.,data=house_train3, method="gbm",
 print(model_gbm)
 ```
 
-GBM Predictions vs Validation Set:
+**GBM Predictions vs Validation Set:**
 
 ```{r echo=TRUE}
 # Prediction
@@ -402,7 +402,7 @@ model_xgb<- train(price~.,data=house_train3, method="xgbTree", trControl=kfolds,
 print(model_xgb)
 ```
 
-XGB Predictions vs Validation Set:
+**XGB Predictions vs Validation Set:**
 
 ```{r echo=TRUE}
 # Prediction
@@ -496,7 +496,7 @@ model_rf_logp <- train(logprice~.,data=house_train3_logp, method="ranger",
 print(model_rf_logp)
 ```
 
-RF - Log(Price) Predictions vs Validation Set:
+**RF - Log(Price) Predictions vs Validation Set:**
 
 ```{r echo=TRUE}
 # Prediction
@@ -516,7 +516,7 @@ model_gbm_logp <- train(logprice~.,data=house_train3_logp, method="gbm",
 print(model_gbm_logp)
 ```
 
-GBM - Log(Price) Predictions vs Validation Set:
+**GBM - Log(Price) Predictions vs Validation Set:**
 
 ```{r echo=TRUE}
 # Prediction
@@ -537,7 +537,7 @@ model_xgb_logp <- train(logprice~.,data=house_train3_logp, method="xgbTree", trC
 print(model_xgb_logp)
 ```
 
-XGB - Log(Price) Predictions vs Validation Set:
+**XGB - Log(Price) Predictions vs Validation Set:**
 
 ```{r echo=TRUE}
 # Prediction
@@ -574,7 +574,7 @@ model_xgb_logp_pca = train(logprice~.,data=house_train3_logp_pca,
 print(model_xgb_logp_pca)
 ```
 
-XGB + PCA - Log(Price) Predictions vs Validation Set:
+**XGB + PCA - Log(Price) Predictions vs Validation Set:**
 
 ```{r echo=TRUE}
 # Prediction
